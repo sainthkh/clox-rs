@@ -1,10 +1,12 @@
 use crate::lox::value::{Value, ValueArray};
+use super::object::{StringLiteral, StringLiteralStorage};
 
 use std::fmt::Display;
 
 #[repr(u8)]
 pub enum OpCode {
     Constant,
+    StringLiteral,
     Nil,
     True,
     False,
@@ -24,6 +26,7 @@ impl Display for OpCode {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             OpCode::Constant => write!(f, "OP_CONSTANT"),
+            OpCode::StringLiteral => write!(f, "OP_STRING_LITERAL"),
             OpCode::Nil => write!(f, "OP_NIL"),
             OpCode::True => write!(f, "OP_TRUE"),
             OpCode::False => write!(f, "OP_FALSE"),
@@ -45,19 +48,20 @@ impl OpCode {
     pub fn from_u8(value: u8) -> OpCode {
         match value {
             0 => OpCode::Constant,
-            1 => OpCode::Nil,
-            2 => OpCode::True,
-            3 => OpCode::False,
-            4 => OpCode::Equal,
-            5 => OpCode::Greater,
-            6 => OpCode::Less,
-            7 => OpCode::Add,
-            8 => OpCode::Subtract,
-            9 => OpCode::Multiply,
-            10 => OpCode::Divide,
-            11 => OpCode::Not,
-            12 => OpCode::Negate,
-            13 => OpCode::Return,
+            1 => OpCode::StringLiteral,
+            2 => OpCode::Nil,
+            3 => OpCode::True,
+            4 => OpCode::False,
+            5 => OpCode::Equal,
+            6 => OpCode::Greater,
+            7 => OpCode::Less,
+            8 => OpCode::Add,
+            9 => OpCode::Subtract,
+            10 => OpCode::Multiply,
+            11 => OpCode::Divide,
+            12 => OpCode::Not,
+            13 => OpCode::Negate,
+            14 => OpCode::Return,
             _ => panic!("Invalid opcode"),
         }
     }
@@ -67,6 +71,7 @@ pub struct Chunk {
     code: Vec<u8>,
     lines: Vec<u32>,
     constants: ValueArray,
+    string_literals: StringLiteralStorage,
 }
 
 impl Chunk {
@@ -75,6 +80,7 @@ impl Chunk {
             code: Vec::new(),
             lines: Vec::new(),
             constants: ValueArray::new(),
+            string_literals: StringLiteralStorage::new(),
         }
     }
 
@@ -97,12 +103,29 @@ impl Chunk {
         Ok((self.constants.values.len() - 1) as u8)
     }
 
+    pub fn write_string_literal_id(&mut self, StringLiteral(id): &StringLiteral, line: u32) {
+        self.code.push(*id);
+        self.lines.push(line);
+    }
+
+    pub fn add_string_literal(&mut self, string: &str) -> Result<StringLiteral, String> {
+        if self.string_literals.is_max_string() {
+            return Err(String::from("Too many string literals in one chunk"));
+        }
+
+        Ok(self.string_literals.add_string(string))
+    }
+
     pub fn byte(&self, offset: usize) -> u8 {
         self.code[offset]
     }
 
     pub fn read_constant(&self, offset: usize) -> &Value {
         self.constants.read(self.code[offset] as usize)
+    }
+
+    pub fn read_string_literal(&self, literal: &StringLiteral) -> &str {
+        self.string_literals.get_string(literal)
     }
 
     pub fn get_line(&self, offset: usize) -> u32 {
@@ -132,6 +155,7 @@ impl Chunk {
 
         match code {
             OpCode::Constant => self.constant_instruction("OP_CONSTANT", offset),
+            OpCode::StringLiteral => self.string_literal_instruction("OP_STRING_LITERAL", offset),
             OpCode::Nil => self.simple_instruction("OP_NIL", offset),
             OpCode::True => self.simple_instruction("OP_TRUE", offset),
             OpCode::False => self.simple_instruction("OP_FALSE", offset),
@@ -151,6 +175,12 @@ impl Chunk {
     fn constant_instruction(&self, name: &str, offset: usize) -> usize {
         let value_idx = self.code[offset + 1];
         println!("{:16} {:4} '{}'", name, value_idx, self.constants.read(value_idx as usize));
+        offset + 2
+    }
+
+    fn string_literal_instruction(&self, name: &str, offset: usize) -> usize {
+        let literal_idx = self.code[offset + 1];
+        println!("{:16} {:4} '{}'", name, literal_idx, self.string_literals.get_string(&StringLiteral(literal_idx)));
         offset + 2
     }
 

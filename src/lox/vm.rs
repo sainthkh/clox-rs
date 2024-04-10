@@ -1,6 +1,7 @@
 use crate::lox::chunk::{Chunk, OpCode};
 use crate::lox::compiler::compile;
 use crate::lox::value::Value;
+use crate::lox::object::StringLiteral;
 
 pub enum InterpretResult {
     Ok,
@@ -128,6 +129,12 @@ fn run(chunk: &Chunk, stack: &mut Stack, debug: bool) -> InterpretResult {
                 dbg_if!(debug, "Read {}", constant);
                 ip += 2;
             },
+            OpCode::StringLiteral => {
+                let string_idx = chunk.byte(ip + 1);
+                stack.push(&Value::StringLiteral(StringLiteral(string_idx)));
+                dbg_if!(debug, "Push StringLiteral {}", string_idx);
+                ip += 2;
+            }
             OpCode::Nil => {
                 stack.push(&Value::Nil);
                 dbg_if!(debug, "Push Nil");
@@ -146,7 +153,7 @@ fn run(chunk: &Chunk, stack: &mut Stack, debug: bool) -> InterpretResult {
             OpCode::Equal => {
                 let b = stack.pop();
                 let a = stack.pop();
-                stack.push(&Value::Bool(values_equal(&a, &b)));
+                stack.push(&Value::Bool(values_equal(&a, &b, &chunk)));
                 dbg_if!(debug, "Equal {} {}", a, b);
                 ip += 1;
             },
@@ -189,11 +196,16 @@ fn is_falsy(value: &Value) -> bool {
     }
 }
 
-fn values_equal(a: &Value, b: &Value) -> bool {
+fn values_equal(a: &Value, b: &Value, chunk: &Chunk) -> bool {
     match (a, b) {
         (Value::Nil, Value::Nil) => true,
         (Value::Bool(a), Value::Bool(b)) => a == b,
         (Value::Number(a), Value::Number(b)) => a == b,
+        (Value::StringLiteral(a), Value::StringLiteral(b)) => {
+            let a_str = chunk.read_string_literal(a);
+            let b_str = chunk.read_string_literal(b);
+            a_str == b_str
+        }
         _ => false,
     }
 }

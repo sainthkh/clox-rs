@@ -74,7 +74,7 @@ impl ParseRule {
             TokenType::Less => ParseRule::new(None, Some(binary), Precedence::Comparison),
             TokenType::LessEqual => ParseRule::new(None, Some(binary), Precedence::Comparison),
             TokenType::Identifier => ParseRule::new(None, None, Precedence::None),
-            TokenType::String => ParseRule::new(None, None, Precedence::None),
+            TokenType::String => ParseRule::new(Some(string), None, Precedence::None),
             TokenType::Number => ParseRule::new(Some(number), None, Precedence::None),
             TokenType::And => ParseRule::new(None, None, Precedence::None),
             TokenType::Class => ParseRule::new(None, None, Precedence::None),
@@ -143,6 +143,22 @@ fn expression(
     ctx: &mut CompilerContext
 ) {
     parse_precedence(Precedence::Assignment, chunk, source, ctx);
+}
+
+fn string(
+    chunk: &mut Chunk, 
+    source: &String, 
+    ctx: &mut CompilerContext
+) {
+    let string = &source[ctx.pp.previous.start..ctx.pp.previous.start + ctx.pp.previous.length];
+    
+    chunk.write(OpCode::StringLiteral, ctx.pp.previous.line);
+    let idx = chunk.add_string_literal(string);
+
+    match idx {
+        Ok(idx) => chunk.write_string_literal_id(&idx, ctx.pp.previous.line),
+        Err(msg) => error_at(ctx.pp.previous.line, &msg, &mut ctx.ps),
+    }
 }
 
 fn number(

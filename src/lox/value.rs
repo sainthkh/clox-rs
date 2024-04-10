@@ -1,3 +1,5 @@
+use crate::lox::object::StringLiteral;
+
 use core::fmt;
 
 #[derive(Clone)]
@@ -5,6 +7,7 @@ pub enum Value {
     Number(f64),
     Bool(bool),
     Nil,
+    StringLiteral(StringLiteral),
 }
 
 impl Value {
@@ -50,6 +53,7 @@ impl fmt::Display for Value {
             Value::Number(value) => write!(f, "{}", value),
             Value::Bool(value) => write!(f, "{}", value),
             Value::Nil => write!(f, "nil"),
+            Value::StringLiteral(value) => write!(f, "{}", value),
         }
     }
 }
