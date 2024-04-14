@@ -1,4 +1,4 @@
-use crate::lox::object::StringLiteral;
+use crate::lox::object::StringId;
 
 use core::fmt;
 
@@ -7,7 +7,7 @@ pub enum Value {
     Number(f64),
     Bool(bool),
     Nil,
-    StringLiteral(StringLiteral),
+    String(StringId),
 }
 
 impl Value {
@@ -45,6 +45,13 @@ impl Value {
             _ => panic!("Expected bool value"),
         }
     }
+
+    pub fn is_string(&self) -> bool {
+        match self {
+            Value::String(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for Value {
@@ -53,7 +60,7 @@ impl fmt::Display for Value {
             Value::Number(value) => write!(f, "{}", value),
             Value::Bool(value) => write!(f, "{}", value),
             Value::Nil => write!(f, "nil"),
-            Value::StringLiteral(value) => write!(f, "{}", value),
+            Value::String(value) => write!(f, "{}", value),
         }
     }
 }

@@ -156,7 +156,10 @@ fn string(
     let idx = chunk.add_string_literal(string);
 
     match idx {
-        Ok(idx) => chunk.write_string_literal_id(&idx, ctx.pp.previous.line),
+        Ok(idx) => 
+            chunk
+                .write_string_literal_id(&idx, ctx.pp.previous.line)
+                .expect("Failed to write string literal id"),
         Err(msg) => error_at(ctx.pp.previous.line, &msg, &mut ctx.ps),
     }
 }

@@ -1,9 +1,26 @@
 use core::fmt::Display;
+use std::collections::HashMap;
+
+const MAX_STRING_LITERAL: u8 = u8::MAX;
 
 #[derive(Clone)]
-pub struct StringLiteral(pub u8);
+pub struct StringId(pub u64);
 
-impl Display for StringLiteral {
+impl StringId {
+    pub fn is_literal(&self) -> bool {
+        self.0 < MAX_STRING_LITERAL as u64
+    }
+
+    pub fn new_literal_id(id: u8) -> StringId {
+        StringId(id as u64)
+    }
+
+    pub fn new_dynamic_id(id: u64) -> StringId {
+        StringId(id)
+    }
+}
+
+impl Display for StringId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "string literal: {}", self.0)
     }
@@ -29,7 +46,11 @@ impl StringLiteralStorage {
         }
     }
 
-    pub fn add_string(&mut self, string: &str) -> StringLiteral {
+    pub fn add_string(&mut self, string: &str) -> Result<StringId, String> {
+        if self.is_max_string() {
+            return Err(String::from("Too many string literals"));
+        }
+
         let start = self.string.len();
         self.string.push_str(string);
         let end = self.string.len();
@@ -39,15 +60,53 @@ impl StringLiteralStorage {
 
         self.next_id += 1;
 
-        StringLiteral(id)
+        Ok(StringId(id as u64))
     }
 
-    pub fn get_string(&self, StringLiteral(id): &StringLiteral) -> &str {
+    pub fn get_string(&self, StringId(id): &StringId) -> &str {
         let l = &self.data[*id as usize];
         &self.string[l.start..l.end]
     }
 
     pub fn is_max_string(&self) -> bool {
-        self.next_id as u8 == u8::MAX
+        self.next_id as u8 == MAX_STRING_LITERAL
     } 
+}
+
+pub struct DynamicStringStorage {
+    string: String,
+    data: HashMap<u64, StringData>,
+    next_id: u64,
+}
+
+impl DynamicStringStorage {
+    pub fn new() -> DynamicStringStorage {
+        DynamicStringStorage {
+            string: String::new(),
+            data: HashMap::new(),
+            next_id: MAX_STRING_LITERAL as u64,
+        }
+    }
+
+    pub fn add_string(&mut self, string: &str) -> Result<StringId, String> {
+        if self.next_id == u64::MAX {
+            return Err(String::from("Too many string literals"));
+        }
+
+        let start = self.string.len();
+        self.string.push_str(string);
+        let end = self.string.len();
+
+        let id = self.next_id;
+        self.data.insert(id, StringData { start, end });
+
+        self.next_id += 1;
+
+        Ok(StringId(id))
+    }
+
+    pub fn get_string(&self, id: u64) -> &str {
+        let l = self.data.get(&id).unwrap();
+        &self.string[l.start..l.end]
+    }
 }

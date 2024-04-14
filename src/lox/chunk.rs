@@ -1,5 +1,5 @@
 use crate::lox::value::{Value, ValueArray};
-use super::object::{StringLiteral, StringLiteralStorage};
+use super::object::{StringId, StringLiteralStorage};
 
 use std::fmt::Display;
 
@@ -103,17 +103,20 @@ impl Chunk {
         Ok((self.constants.values.len() - 1) as u8)
     }
 
-    pub fn write_string_literal_id(&mut self, StringLiteral(id): &StringLiteral, line: u32) {
-        self.code.push(*id);
-        self.lines.push(line);
+    pub fn write_string_literal_id(&mut self, id: &StringId, line: u32) -> Result<(), String> {
+        if id.is_literal() {
+            let id = id.0 as u8;
+            self.code.push(id);
+            self.lines.push(line);
+
+            Ok(())
+        } else {
+            Err(String::from("Invalid string literal id"))
+        }
     }
 
-    pub fn add_string_literal(&mut self, string: &str) -> Result<StringLiteral, String> {
-        if self.string_literals.is_max_string() {
-            return Err(String::from("Too many string literals in one chunk"));
-        }
-
-        Ok(self.string_literals.add_string(string))
+    pub fn add_string_literal(&mut self, string: &str) -> Result<StringId, String> {
+        self.string_literals.add_string(string)
     }
 
     pub fn byte(&self, offset: usize) -> u8 {
@@ -124,7 +127,7 @@ impl Chunk {
         self.constants.read(self.code[offset] as usize)
     }
 
-    pub fn read_string_literal(&self, literal: &StringLiteral) -> &str {
+    pub fn read_string_literal(&self, literal: &StringId) -> &str {
         self.string_literals.get_string(literal)
     }
 
@@ -180,7 +183,7 @@ impl Chunk {
 
     fn string_literal_instruction(&self, name: &str, offset: usize) -> usize {
         let literal_idx = self.code[offset + 1];
-        println!("{:16} {:4} '{}'", name, literal_idx, self.string_literals.get_string(&StringLiteral(literal_idx)));
+        println!("{:16} {:4} '{}'", name, literal_idx, self.string_literals.get_string(&StringId::new_literal_id(literal_idx)));
         offset + 2
     }
 

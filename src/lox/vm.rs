@@ -1,7 +1,7 @@
 use crate::lox::chunk::{Chunk, OpCode};
 use crate::lox::compiler::compile;
 use crate::lox::value::Value;
-use crate::lox::object::StringLiteral;
+use crate::lox::object::{StringId, DynamicStringStorage};
 
 pub enum InterpretResult {
     Ok,
@@ -69,9 +69,9 @@ macro_rules! dbg_if {
 }
 
 macro_rules! stack_trace {
-    ($stack: ident) => {
+    ($env: ident) => {
         if cfg!(debug_assertions) {
-            $stack.trace();
+            $env.stack.trace();
         }
     }
 }
@@ -85,36 +85,50 @@ macro_rules! disassemble_instruction {
 }
 
 macro_rules! binary {
-    ($stack: ident, $op: tt, $res_type: expr, $ip: tt, $debug: expr) => {
+    ($env: ident, $op: tt, $res_type: expr, $ip: tt, $debug: expr) => {
         {
-            let b = $stack.pop();
-            let a = $stack.pop();
-            $stack.push(&$res_type(a.as_number() $op b.as_number()));
+            let b = $env.stack.pop();
+            let a = $env.stack.pop();
+            $env.stack.push(&$res_type(a.as_number() $op b.as_number()));
             dbg_if!($debug, "{} {} {}", stringify!($op), a, b);
             $ip += 1;
         }
     }
 }
 
+struct Env {
+    stack: Stack,
+    dynamic_strings: DynamicStringStorage,
+}
+
+impl Env {
+    fn new() -> Env {
+        Env {
+            stack: Stack::new(),
+            dynamic_strings: DynamicStringStorage::new(),
+        }
+    }
+}
+
 pub fn interpret(source: &String, debug: bool) -> InterpretResult {
-    let mut stack = Stack::new();
+    let mut env = Env::new();
     let res = compile(&source);
     match res {
         Ok(chunk) => {
-            run(&chunk, &mut stack, debug)
+            run(&chunk, &mut env, debug)
         }
         Err(_) => InterpretResult::CompileError,
     }
 }
 
-fn run(chunk: &Chunk, stack: &mut Stack, debug: bool) -> InterpretResult {
+fn run(chunk: &Chunk, env: &mut Env, debug: bool) -> InterpretResult {
     let mut ip = 0;
     loop {
         if cfg!(debug_assertions) {
             if debug {
                 dbg!("");
                 dbg!("Stack");
-                stack_trace!(stack);
+                stack_trace!(env);
                 dbg!("Instruction");
                 disassemble_instruction!(chunk, ip);
             }
@@ -125,62 +139,87 @@ fn run(chunk: &Chunk, stack: &mut Stack, debug: bool) -> InterpretResult {
         match opcode {
             OpCode::Constant => {
                 let constant = chunk.read_constant(ip + 1);
-                stack.push(constant);
+                env.stack.push(constant);
                 dbg_if!(debug, "Read {}", constant);
                 ip += 2;
             },
             OpCode::StringLiteral => {
                 let string_idx = chunk.byte(ip + 1);
-                stack.push(&Value::StringLiteral(StringLiteral(string_idx)));
+                env.stack.push(&Value::String(StringId::new_literal_id(string_idx)));
                 dbg_if!(debug, "Push StringLiteral {}", string_idx);
                 ip += 2;
             }
             OpCode::Nil => {
-                stack.push(&Value::Nil);
+                env.stack.push(&Value::Nil);
                 dbg_if!(debug, "Push Nil");
                 ip += 1;
             },
             OpCode::True => {
-                stack.push(&Value::Bool(true));
+                env.stack.push(&Value::Bool(true));
                 dbg_if!(debug, "Push True");
                 ip += 1;
             },
             OpCode::False => {
-                stack.push(&Value::Bool(false));
+                env.stack.push(&Value::Bool(false));
                 dbg_if!(debug, "Push False");
                 ip += 1;
             },
             OpCode::Equal => {
-                let b = stack.pop();
-                let a = stack.pop();
-                stack.push(&Value::Bool(values_equal(&a, &b, &chunk)));
+                let b = env.stack.pop();
+                let a = env.stack.pop();
+                env.stack.push(&Value::Bool(values_equal(&a, &b, &chunk)));
                 dbg_if!(debug, "Equal {} {}", a, b);
                 ip += 1;
             },
-            OpCode::Greater => binary!(stack, >, Value::Bool, ip, debug),
-            OpCode::Less => binary!(stack, <, Value::Bool, ip, debug),
-            OpCode::Add => binary!(stack, +, Value::Number, ip, debug),
-            OpCode::Subtract => binary!(stack, -, Value::Number, ip, debug),
-            OpCode::Multiply => binary!(stack, *, Value::Number, ip, debug),
-            OpCode::Divide => binary!(stack, /, Value::Number, ip, debug),
+            OpCode::Greater => binary!(env, >, Value::Bool, ip, debug),
+            OpCode::Less => binary!(env, <, Value::Bool, ip, debug),
+            OpCode::Add => {
+                let b = env.stack.pop();
+                let a = env.stack.pop();
+                match (a, b) {
+                    (Value::Number(a), Value::Number(b)) => {
+                        env.stack.push(&Value::Number(a + b));
+                        dbg!("Add numbers {} {}", a, b);
+                    },
+                    (Value::String(a), Value::String(b)) => {
+                        let a_str = chunk.read_string_literal(&a);
+                        let b_str = chunk.read_string_literal(&b);
+                        let mut new_string = String::new();
+                        new_string.push_str(&a_str);
+                        new_string.push_str(&b_str);
+                        dbg!("Add strings {} {}", a_str, b_str);
+
+                        let new_dynamic_string = env.dynamic_strings.add_string(&new_string).expect("Too many dynamic strings");
+                        env.stack.push(&Value::String(new_dynamic_string));
+                    },
+                    _ => {
+                        runtime_error(&mut env.stack, opcode, chunk.get_line(ip), "Operands must be two numbers or two strings");
+                        return InterpretResult::RuntimeError;
+                    }
+                }
+                ip += 1;
+            }
+            OpCode::Subtract => binary!(env, -, Value::Number, ip, debug),
+            OpCode::Multiply => binary!(env, *, Value::Number, ip, debug),
+            OpCode::Divide => binary!(env, /, Value::Number, ip, debug),
             OpCode::Not => {
-                let value = stack.pop();
-                stack.push(&Value::Bool(is_falsy(&value)));
+                let value = env.stack.pop();
+                env.stack.push(&Value::Bool(is_falsy(&value)));
                 dbg_if!(debug, "Not {}", value);
                 ip += 1;
             },
             OpCode::Negate => {
-                if !stack.peek(0).is_number() {
-                    runtime_error(stack, opcode, chunk.get_line(ip), "Operand must be a number");
+                if !env.stack.peek(0).is_number() {
+                    runtime_error(&mut env.stack, opcode, chunk.get_line(ip), "Operand must be a number");
                     return InterpretResult::RuntimeError;
                 }
-                let value = stack.pop();
-                stack.push(&Value::Number(-value.as_number()));
+                let value = env.stack.pop();
+                env.stack.push(&Value::Number(-value.as_number()));
                 dbg_if!(debug, "Negate {}", value);
                 ip += 1;
             },
             OpCode::Return => {
-                let value = stack.pop();
+                let value = env.stack.pop();
                 dbg_if!(debug, "Return {}", value);
                 return InterpretResult::Ok
             },
@@ -201,7 +240,7 @@ fn values_equal(a: &Value, b: &Value, chunk: &Chunk) -> bool {
         (Value::Nil, Value::Nil) => true,
         (Value::Bool(a), Value::Bool(b)) => a == b,
         (Value::Number(a), Value::Number(b)) => a == b,
-        (Value::StringLiteral(a), Value::StringLiteral(b)) => {
+        (Value::String(a), Value::String(b)) => {
             let a_str = chunk.read_string_literal(a);
             let b_str = chunk.read_string_literal(b);
             a_str == b_str
