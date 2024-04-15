@@ -19,6 +19,7 @@ pub enum OpCode {
     Divide,
     Not,
     Negate,
+    Print,
     Return,
 }
 
@@ -39,6 +40,7 @@ impl Display for OpCode {
             OpCode::Divide => write!(f, "OP_DIVIDE"),
             OpCode::Not => write!(f, "OP_NOT"),
             OpCode::Negate => write!(f, "OP_NEGATE"),
+            OpCode::Print => write!(f, "OP_PRINT"),
             OpCode::Return => write!(f, "OP_RETURN"),
         }
     }
@@ -61,7 +63,8 @@ impl OpCode {
             11 => OpCode::Divide,
             12 => OpCode::Not,
             13 => OpCode::Negate,
-            14 => OpCode::Return,
+            14 => OpCode::Print,
+            15 => OpCode::Return,
             _ => panic!("Invalid opcode"),
         }
     }
@@ -171,7 +174,15 @@ impl Chunk {
             OpCode::Divide => self.simple_instruction("OP_DIVIDE", offset),
             OpCode::Not => self.simple_instruction("OP_NOT", offset),
             OpCode::Negate => self.simple_instruction("OP_NEGATE", offset),
+            OpCode::Print => self.simple_instruction("OP_PRINT", offset),
             OpCode::Return => self.simple_instruction("OP_RETURN", offset),
+        }
+    }
+
+    pub fn print_codes(&self) {
+        for (i, code) in self.code.iter().enumerate() {
+            let code = OpCode::from_u8(*code);
+            println!("{}", code);
         }
     }
 

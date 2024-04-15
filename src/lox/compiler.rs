@@ -130,11 +130,53 @@ pub fn compile(source: &String) -> Result<Chunk, ()> {
         line: 1,
     };
     advance(source, &mut ctx);
-    expression(&mut chunk, source, &mut ctx);
+
+    loop {
+        if match_token(TokenType::EOF, source, &mut ctx) {
+            break;
+        }
+
+        declaration(&mut chunk, source, &mut ctx);
+    }
+
+    // expression(&mut chunk, source, &mut ctx);
     consume(TokenType::EOF, "Expect end of expression.", source, &mut ctx);
     chunk.write(OpCode::Return, ctx.line);
 
     Ok(chunk)
+}
+
+fn match_token(token_type: TokenType, source: &String, ctx: &mut CompilerContext) -> bool {
+    if !check(token_type, &ctx.pp) {
+        return false;
+    }
+
+    advance(source, ctx);
+
+    true
+} 
+
+fn check(token_type: TokenType, pp: &ParserPointer) -> bool {
+    pp.current.token_type == token_type
+}
+
+fn declaration(chunk: &mut Chunk, source: &String, ctx: &mut CompilerContext) {
+    statement(chunk, source, ctx);
+}
+
+fn statement(chunk: &mut Chunk, source: &String, ctx: &mut CompilerContext) {
+    if match_token(TokenType::Print, source, ctx) {
+        print_statement(chunk, source, ctx);
+    } else {
+        expression(chunk, source, ctx);
+        consume(TokenType::Semicolon, "Expect ';' after value.", source, ctx);
+    }
+}
+
+fn print_statement(chunk: &mut Chunk, source: &String, ctx: &mut CompilerContext) {
+    expression(chunk, source, ctx);
+    consume(TokenType::Semicolon, "Expect ';' after value.", source, ctx);
+    chunk.write(OpCode::Print, ctx.pp.previous.line);
 }
 
 fn expression(
@@ -150,7 +192,7 @@ fn string(
     source: &String, 
     ctx: &mut CompilerContext
 ) {
-    let string = &source[ctx.pp.previous.start..ctx.pp.previous.start + ctx.pp.previous.length];
+    let string = &source[(ctx.pp.previous.start + 1)..(ctx.pp.previous.start + ctx.pp.previous.length - 1)];
     
     chunk.write(OpCode::StringLiteral, ctx.pp.previous.line);
     let idx = chunk.add_string_literal(string);

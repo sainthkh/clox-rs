@@ -36,6 +36,10 @@ impl Stack {
         &self.values[self.values.len() - 1 - distance]
     }
 
+    fn is_empty(&self) -> bool {
+        self.values.len() == 0
+    }
+
     fn trace(&self) {
         print!("           ");
         if self.values.len() == 0 {
@@ -122,6 +126,8 @@ pub fn interpret(source: &String, debug: bool) -> InterpretResult {
 }
 
 fn run(chunk: &Chunk, env: &mut Env, debug: bool) -> InterpretResult {
+    chunk.print_codes();
+
     let mut ip = 0;
     loop {
         if cfg!(debug_assertions) {
@@ -187,7 +193,7 @@ fn run(chunk: &Chunk, env: &mut Env, debug: bool) -> InterpretResult {
                         let mut new_string = String::new();
                         new_string.push_str(&a_str);
                         new_string.push_str(&b_str);
-                        dbg!("Add strings {} {}", a_str, b_str);
+                        dbg!("Add strings {} {} {}", a_str, b_str, new_string);
 
                         let new_dynamic_string = env.dynamic_strings.add_string(&new_string).expect("Too many dynamic strings");
                         env.stack.push(&Value::String(new_dynamic_string));
@@ -218,13 +224,41 @@ fn run(chunk: &Chunk, env: &mut Env, debug: bool) -> InterpretResult {
                 dbg_if!(debug, "Negate {}", value);
                 ip += 1;
             },
-            OpCode::Return => {
+            OpCode::Print => {
                 let value = env.stack.pop();
-                dbg_if!(debug, "Return {}", value);
+                dbg_if!(debug, "Print {}", value);
+                print_value(&value, &chunk, env);
+                ip += 1;
+            },
+            OpCode::Return => {
+                if env.stack.is_empty() {
+                    dbg_if!(debug, "Stack Empty. Return Nothing")
+                } else {
+                    let value = env.stack.pop();
+                    dbg_if!(debug, "Return {}", value);
+                };
                 return InterpretResult::Ok
             },
         }
     }
+}
+
+fn print_value(value: &Value, chunk: &Chunk, env: &Env) {
+    match value {
+        Value::Nil => println!("nil"),
+        Value::Bool(b) => println!("{}", b),
+        Value::Number(n) => println!("{}", n),
+        Value::String(id) => {
+            let string = if id.is_literal() {
+                chunk.read_string_literal(id)
+            } else {
+                env.dynamic_strings.get_string(id)
+            };
+
+            println!("{}", string);
+        }
+    }
+
 }
 
 fn is_falsy(value: &Value) -> bool {

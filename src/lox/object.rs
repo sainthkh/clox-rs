@@ -105,7 +105,7 @@ impl DynamicStringStorage {
         Ok(StringId(id))
     }
 
-    pub fn get_string(&self, id: u64) -> &str {
+    pub fn get_string(&self, StringId(id): &StringId) -> &str {
         let l = self.data.get(&id).unwrap();
         &self.string[l.start..l.end]
     }

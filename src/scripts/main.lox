@@ -1,1 +1,1 @@
-"str" + "str";
+print "str" + "str";
