@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 const MAX_STRING_LITERAL: u8 = u8::MAX;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct StringId(pub u64);
 
 impl StringId {
@@ -44,6 +44,16 @@ impl StringLiteralStorage {
             data: Vec::new(),
             next_id: 0,
         }
+    }
+
+    pub fn exist_string(&self, string: &str) -> Option<StringId> {
+        for (i, l) in self.data.iter().enumerate() {
+            if &self.string[l.start..l.end] == string {
+                return Some(StringId(i as u64));
+            }
+        }
+
+        None
     }
 
     pub fn add_string(&mut self, string: &str) -> Result<StringId, String> {

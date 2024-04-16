@@ -3,6 +3,8 @@ use crate::lox::compiler::compile;
 use crate::lox::value::Value;
 use crate::lox::object::{StringId, DynamicStringStorage};
 
+use std::collections::HashMap;
+
 pub enum InterpretResult {
     Ok,
     CompileError,
@@ -72,6 +74,17 @@ macro_rules! dbg_if {
     };
 }
 
+macro_rules! dbg_var {
+    ($cond: expr, $chunk: ident, $id: ident, $value: ident) => {
+        {
+            if cfg!(debug_assertions) && $cond {
+                let name = $chunk.read_string_literal(&$id);
+                dbg_if!($cond, "{} {}", $value, name);
+            }
+        }
+    }
+}
+
 macro_rules! stack_trace {
     ($env: ident) => {
         if cfg!(debug_assertions) {
@@ -102,6 +115,7 @@ macro_rules! binary {
 
 struct Env {
     stack: Stack,
+    globals: HashMap<StringId, Value>,
     dynamic_strings: DynamicStringStorage,
 }
 
@@ -109,6 +123,7 @@ impl Env {
     fn new() -> Env {
         Env {
             stack: Stack::new(),
+            globals: HashMap::new(),
             dynamic_strings: DynamicStringStorage::new(),
         }
     }
@@ -169,6 +184,49 @@ fn run(chunk: &Chunk, env: &mut Env, debug: bool) -> InterpretResult {
                 env.stack.push(&Value::Bool(false));
                 dbg_if!(debug, "Push False");
                 ip += 1;
+            },
+            OpCode::Pop => {
+                env.stack.pop();
+                dbg_if!(debug, "Pop");
+                ip += 1;
+            },
+            OpCode::GetGlobal => {
+                let id = chunk.byte(ip + 1);
+                let id = StringId::new_literal_id(id);
+                let value = env.globals.get(&id);
+                let value = match value {
+                    Some(v) => v,
+                    None => {
+                        let msg = format!("Undefined variable '{}'", chunk.read_string_literal(&id));
+                        runtime_error(&mut env.stack, opcode, chunk.get_line(ip), &msg);
+                        return InterpretResult::RuntimeError;
+                    }
+                };
+
+                env.stack.pop(); // Pop the id
+                env.stack.push(value);
+                dbg_if!(debug, "Get Global {}", value);
+                ip += 2;
+            },
+            OpCode::DefineGlobal => {
+                let id = chunk.byte(ip + 1);
+                let id = StringId::new_literal_id(id);
+                let value = env.stack.peek(0);
+                dbg!("Define Global");
+                dbg_var!(debug, chunk, id, value);
+                env.globals.insert(id, value.clone());
+                env.stack.pop(); // Pop the value
+                env.stack.pop(); // Pop the id
+                ip += 2;
+            },
+            OpCode::SetGlobal => {
+                let id = chunk.byte(ip + 1);
+                let id = StringId::new_literal_id(id);
+                let value = env.stack.peek(0);
+                dbg!("Set Global");
+                dbg_var!(debug, chunk, id, value);
+                env.globals.insert(id, value.clone());
+                ip += 2;
             },
             OpCode::Equal => {
                 let b = env.stack.pop();

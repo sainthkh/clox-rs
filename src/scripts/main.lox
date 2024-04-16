@@ -1,1 +1,7 @@
-print "str" + "str";
+// var x = "hello";
+// var y = "world";
+// print x + y;
+
+var a = 10;
+a = a + 10;
+print a;

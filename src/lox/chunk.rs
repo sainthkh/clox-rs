@@ -10,6 +10,10 @@ pub enum OpCode {
     Nil,
     True,
     False,
+    Pop,
+    GetGlobal,
+    DefineGlobal,
+    SetGlobal,
     Equal,
     Greater,
     Less,
@@ -31,6 +35,10 @@ impl Display for OpCode {
             OpCode::Nil => write!(f, "OP_NIL"),
             OpCode::True => write!(f, "OP_TRUE"),
             OpCode::False => write!(f, "OP_FALSE"),
+            OpCode::Pop => write!(f, "OP_POP"),
+            OpCode::GetGlobal => write!(f, "OP_GET_GLOBAL"),
+            OpCode::DefineGlobal => write!(f, "OP_DEFINE_GLOBAL"),
+            OpCode::SetGlobal => write!(f, "OP_SET_GLOBAL"),
             OpCode::Equal => write!(f, "OP_EQUAL"),
             OpCode::Greater => write!(f, "OP_GREATER"),
             OpCode::Less => write!(f, "OP_LESS"),
@@ -54,17 +62,21 @@ impl OpCode {
             2 => OpCode::Nil,
             3 => OpCode::True,
             4 => OpCode::False,
-            5 => OpCode::Equal,
-            6 => OpCode::Greater,
-            7 => OpCode::Less,
-            8 => OpCode::Add,
-            9 => OpCode::Subtract,
-            10 => OpCode::Multiply,
-            11 => OpCode::Divide,
-            12 => OpCode::Not,
-            13 => OpCode::Negate,
-            14 => OpCode::Print,
-            15 => OpCode::Return,
+            5 => OpCode::Pop,
+            6 => OpCode::GetGlobal,
+            7 => OpCode::DefineGlobal,
+            8 => OpCode::SetGlobal,
+            9 => OpCode::Equal,
+            10 => OpCode::Greater,
+            11 => OpCode::Less,
+            12 => OpCode::Add,
+            13 => OpCode::Subtract,
+            14 => OpCode::Multiply,
+            15 => OpCode::Divide,
+            16 => OpCode::Not,
+            17 => OpCode::Negate,
+            18 => OpCode::Print,
+            19 => OpCode::Return,
             _ => panic!("Invalid opcode"),
         }
     }
@@ -92,8 +104,8 @@ impl Chunk {
         self.lines.push(line);
     }
 
-    pub fn write_constant_index(&mut self, constant_index: u8, line: u32) {
-        self.code.push(constant_index);
+    pub fn write_u8(&mut self, v: u8, line: u32) {
+        self.code.push(v);
         self.lines.push(line);
     }
 
@@ -118,8 +130,11 @@ impl Chunk {
         }
     }
 
-    pub fn add_string_literal(&mut self, string: &str) -> Result<StringId, String> {
-        self.string_literals.add_string(string)
+    pub fn add_or_retrieve_string_literal(&mut self, string: &str) -> Result<StringId, String> {
+        match self.string_literals.exist_string(string) {
+            Some(id) => Ok(id),
+            None => self.string_literals.add_string(string),
+        }
     }
 
     pub fn byte(&self, offset: usize) -> u8 {
@@ -165,6 +180,10 @@ impl Chunk {
             OpCode::Nil => self.simple_instruction("OP_NIL", offset),
             OpCode::True => self.simple_instruction("OP_TRUE", offset),
             OpCode::False => self.simple_instruction("OP_FALSE", offset),
+            OpCode::Pop => self.simple_instruction("OP_POP", offset),
+            OpCode::GetGlobal => self.global_instruction("OP_GET_GLOBAL", offset),
+            OpCode::DefineGlobal => self.global_instruction("OP_DEFINE_GLOBAL", offset),
+            OpCode::SetGlobal => self.global_instruction("OP_SET_GLOBAL", offset),
             OpCode::Equal => self.simple_instruction("OP_EQUAL", offset),
             OpCode::Greater => self.simple_instruction("OP_GREATER", offset),
             OpCode::Less => self.simple_instruction("OP_LESS", offset),
@@ -180,7 +199,7 @@ impl Chunk {
     }
 
     pub fn print_codes(&self) {
-        for (i, code) in self.code.iter().enumerate() {
+        for (_, code) in self.code.iter().enumerate() {
             let code = OpCode::from_u8(*code);
             println!("{}", code);
         }
@@ -189,6 +208,12 @@ impl Chunk {
     fn constant_instruction(&self, name: &str, offset: usize) -> usize {
         let value_idx = self.code[offset + 1];
         println!("{:16} {:4} '{}'", name, value_idx, self.constants.read(value_idx as usize));
+        offset + 2
+    }
+
+    fn global_instruction(&self, name: &str, offset: usize) -> usize {
+        let literal_idx = self.code[offset + 1];
+        println!("{:16} {:4} '{}'", name, literal_idx, self.string_literals.get_string(&StringId::new_literal_id(literal_idx)));
         offset + 2
     }
 

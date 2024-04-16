@@ -2,7 +2,7 @@ use crate::lox::object::StringId;
 
 use core::fmt;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Value {
     Number(f64),
     Bool(bool),

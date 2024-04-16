@@ -1,6 +1,7 @@
 use crate::lox::scanner::{TokenType, Token, ScannerPointer, scan_token};
 use crate::lox::chunk::{OpCode, Chunk};
 use crate::lox::value::Value;
+use crate::lox::object::StringId;
 
 #[derive(PartialEq, PartialOrd)]
 enum Precedence {
@@ -73,7 +74,7 @@ impl ParseRule {
             TokenType::GreaterEqual => ParseRule::new(None, Some(binary), Precedence::Comparison),
             TokenType::Less => ParseRule::new(None, Some(binary), Precedence::Comparison),
             TokenType::LessEqual => ParseRule::new(None, Some(binary), Precedence::Comparison),
-            TokenType::Identifier => ParseRule::new(None, None, Precedence::None),
+            TokenType::Identifier => ParseRule::new(Some(variable), None, Precedence::None),
             TokenType::String => ParseRule::new(Some(string), None, Precedence::None),
             TokenType::Number => ParseRule::new(Some(number), None, Precedence::None),
             TokenType::And => ParseRule::new(None, None, Precedence::None),
@@ -102,6 +103,7 @@ struct CompilerContext {
     sp: ScannerPointer,
     pp: ParserPointer,
     ps: ParserState,
+    can_assign: bool,
     line: u32,
 }
 
@@ -127,6 +129,7 @@ pub fn compile(source: &String) -> Result<Chunk, ()> {
             panic_mode: false,
             had_error: false,
         },
+        can_assign: false,
         line: 1,
     };
     advance(source, &mut ctx);
@@ -161,15 +164,101 @@ fn check(token_type: TokenType, pp: &ParserPointer) -> bool {
 }
 
 fn declaration(chunk: &mut Chunk, source: &String, ctx: &mut CompilerContext) {
-    statement(chunk, source, ctx);
+    match ctx.pp.current.token_type {
+        TokenType::Var => var_declaration(chunk, source, ctx),
+        _ => statement(chunk, source, ctx),
+    }
+
+    if ctx.ps.panic_mode {
+        synchronize(source, ctx);
+    }
+}
+
+fn var_declaration(chunk: &mut Chunk, source: &String, ctx: &mut CompilerContext) {
+    advance(source, ctx);
+
+    let global = parse_variable("Expect variable name.", chunk, source, ctx);
+
+    let global = match global {
+        Ok(global) => global,
+        Err(msg) => {
+            error_at(ctx.pp.previous.line, &msg, &mut ctx.ps);
+            return;
+        },
+    };
+
+    if match_token(TokenType::Equal, source, ctx) {
+        expression(chunk, source, ctx);
+    } else {
+        chunk.write(OpCode::Nil, ctx.pp.previous.line);
+    }
+
+    consume(TokenType::Semicolon, "Expect ';' after variable declaration.", source, ctx);
+
+    define_variable(&global, chunk, ctx);
+}
+
+fn parse_variable(error_msg: &str, chunk: &mut Chunk, source: &String, ctx: &mut CompilerContext) -> Result<StringId, String>{
+    consume(TokenType::Identifier, error_msg, source, ctx);
+    identifier_constant(chunk, source, ctx)
+}
+
+fn identifier_constant(chunk: &mut Chunk, source: &String, ctx: &mut CompilerContext) -> Result<StringId, String> {
+    let name = &source[ctx.pp.previous.start..ctx.pp.previous.start + ctx.pp.previous.length];
+    
+    chunk.write(OpCode::StringLiteral, ctx.pp.previous.line);
+    let idx = chunk.add_or_retrieve_string_literal(name);
+
+    match idx {
+        Ok(idx) => {
+            chunk
+                .write_string_literal_id(&idx, ctx.pp.previous.line)
+                .expect("Failed to write variable as string literal id");
+            
+            return Ok(idx);
+        },
+        Err(msg) => {
+            let msg = format!("Failed to add string literal: {}", msg);
+
+            return Err(msg);
+        },
+    }
+}
+
+fn define_variable(global: &StringId, chunk: &mut Chunk, ctx: &mut CompilerContext) {
+    chunk.write(OpCode::DefineGlobal, ctx.pp.previous.line);
+    chunk.write_u8(global.0 as u8, ctx.pp.previous.line);
+}
+
+fn synchronize(source: &String, ctx: &mut CompilerContext) {
+    ctx.ps.panic_mode = false;
+
+    while ctx.pp.current.token_type != TokenType::EOF {
+        if ctx.pp.previous.token_type == TokenType::Semicolon {
+            return;
+        }
+
+        match ctx.pp.current.token_type {
+            TokenType::Class | 
+            TokenType::Fun | 
+            TokenType::Var | 
+            TokenType::For | 
+            TokenType::If | 
+            TokenType::While | 
+            TokenType::Print | 
+            TokenType::Return => return,
+            _ => (),
+        }
+
+        advance(source, ctx);
+    }
 }
 
 fn statement(chunk: &mut Chunk, source: &String, ctx: &mut CompilerContext) {
     if match_token(TokenType::Print, source, ctx) {
         print_statement(chunk, source, ctx);
     } else {
-        expression(chunk, source, ctx);
-        consume(TokenType::Semicolon, "Expect ';' after value.", source, ctx);
+        expression_statement(chunk, source, ctx);
     }
 }
 
@@ -177,6 +266,12 @@ fn print_statement(chunk: &mut Chunk, source: &String, ctx: &mut CompilerContext
     expression(chunk, source, ctx);
     consume(TokenType::Semicolon, "Expect ';' after value.", source, ctx);
     chunk.write(OpCode::Print, ctx.pp.previous.line);
+}
+
+fn expression_statement(chunk: &mut Chunk, source: &String, ctx: &mut CompilerContext) {
+    expression(chunk, source, ctx);
+    consume(TokenType::Semicolon, "Expect ';' after expression.", source, ctx);
+    chunk.write(OpCode::Pop, ctx.pp.previous.line);
 }
 
 fn expression(
@@ -187,6 +282,37 @@ fn expression(
     parse_precedence(Precedence::Assignment, chunk, source, ctx);
 }
 
+fn variable(
+    chunk: &mut Chunk, 
+    source: &String, 
+    ctx: &mut CompilerContext
+) {
+    named_variable(chunk, source, ctx);
+}
+
+fn named_variable(
+    chunk: &mut Chunk,
+    source: &String,
+    ctx: &mut CompilerContext
+) {
+    let arg = identifier_constant(chunk, source, ctx);
+
+    match arg {
+        Ok(arg) => {
+            let arg = arg.0 as u8;
+            if ctx.can_assign && match_token(TokenType::Equal, source, ctx) {
+                expression(chunk, source, ctx);
+                chunk.write(OpCode::SetGlobal, ctx.pp.previous.line);
+                chunk.write_u8(arg, ctx.pp.previous.line);
+            } else {
+                chunk.write(OpCode::GetGlobal, ctx.pp.previous.line);
+                chunk.write_u8(arg, ctx.pp.previous.line);
+            }
+        },
+        Err(msg) => error_at(ctx.pp.previous.line, &msg, &mut ctx.ps),
+    }
+}
+
 fn string(
     chunk: &mut Chunk, 
     source: &String, 
@@ -195,7 +321,7 @@ fn string(
     let string = &source[(ctx.pp.previous.start + 1)..(ctx.pp.previous.start + ctx.pp.previous.length - 1)];
     
     chunk.write(OpCode::StringLiteral, ctx.pp.previous.line);
-    let idx = chunk.add_string_literal(string);
+    let idx = chunk.add_or_retrieve_string_literal(string);
 
     match idx {
         Ok(idx) => 
@@ -217,7 +343,7 @@ fn number(
     chunk.write(OpCode::Constant, ctx.pp.previous.line);
     let idx = chunk.add_constant(Value::Number(number));
     match idx {
-        Ok(idx) => chunk.write_constant_index(idx, ctx.pp.previous.line),
+        Ok(idx) => chunk.write_u8(idx, ctx.pp.previous.line),
         Err(msg) => error_at(ctx.pp.previous.line, &msg, &mut ctx.ps),
     }
 }
@@ -311,12 +437,17 @@ fn parse_precedence(
         }
     };
 
+    ctx.can_assign = precedence <= Precedence::Assignment;
     prefix_rule(chunk, source, ctx);
 
     while precedence <= ParseRule::query(ctx.pp.current.token_type).precedence {
         advance(source, ctx);
         let infix_rule = ParseRule::query(ctx.pp.previous.token_type).infix.unwrap();
         infix_rule(chunk, source, ctx);
+    }
+
+    if ctx.can_assign && match_token(TokenType::Equal, source, ctx) {
+        error_at(ctx.pp.previous.line, "Invalid assignment target.", &mut ctx.ps);
     }
 }
 
